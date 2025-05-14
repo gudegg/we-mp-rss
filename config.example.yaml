@@ -1,0 +1,8 @@
+#从公众号平台获取的Cookie
+cookie: 
+   
+user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36..."
+#从公众号平台获取的TOKEN
+token: 2088180987 
+count: 20
+db: mysql://username:password@localhost/dbname
