@@ -1,39 +1,34 @@
 import axios from 'axios'
-import { Message } from '@arco-design/web-vue'
+import { getToken } from '@/utils/auth'
 
-const service = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+// 创建axios实例
+const http = axios.create({
+  baseURL: import.meta.env.VITE_API_BASE_URL,
   timeout: 10000
 })
 
 // 请求拦截器
-service.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token')
+http.interceptors.request.use(
+  config => {
+    const token = getToken()
     if (token) {
-      config.headers.Authorization = `Bearer ${token}`
+      config.headers['Authorization'] = `Bearer ${token}`
     }
     return config
   },
-  (error) => {
+  error => {
     return Promise.reject(error)
   }
 )
 
 // 响应拦截器
-service.interceptors.response.use(
-  (response) => {
-    if (response.status !== 200) {
-      Message.error('请求失败')
-      return Promise.reject(new Error('请求失败'))
-    }
-    const res = response.data
-    return res
+http.interceptors.response.use(
+  response => {
+    return response.data
   },
-  (error) => {
-    Message.error(error.message || '请求失败')
+  error => {
     return Promise.reject(error)
   }
 )
 
-export default service
+export default http

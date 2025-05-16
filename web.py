@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -10,8 +10,11 @@ import os
 
 app = FastAPI(
     title="WeRSS API",
-    description="微信公众号RSS生成服务",
-    version="1.0.0"
+    description="微信公众号RSS生成服务API文档",
+    version="1.0.0",
+    docs_url="/api/docs",  # 指定文档路径
+    redoc_url="/api/redoc",  # 指定Redoc路径
+    openapi_url="/api/openapi.json"  # 指定OpenAPI schema路径
 )
 
 # CORS配置
@@ -23,11 +26,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# API路由
-app.include_router(auth_router, prefix="/wx")
-app.include_router(user_router, prefix="/wx")
-app.include_router(article_router, prefix="/wx")
-app.include_router(wechat_router, prefix="/wx")
+# 创建API路由分组
+api_router = APIRouter(prefix="/api")
+api_router.include_router(auth_router, prefix="/wx")
+api_router.include_router(user_router, prefix="/wx")
+api_router.include_router(article_router, prefix="/wx")
+api_router.include_router(wechat_router, prefix="/wx")
+
+# 注册API路由分组
+app.include_router(api_router)
 
 # 静态文件服务配置
 app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
@@ -37,7 +44,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 async def serve_vue_app(request: Request, path: str):
     """处理Vue应用路由"""
     # 排除API和静态文件路由
-    if path.startswith(('wx', 'api', 'assets', 'static')):
+    if path.startswith(('api', 'assets', 'static')) or path in ['favicon.ico']:
         return None
     
     # 返回Vue入口文件
