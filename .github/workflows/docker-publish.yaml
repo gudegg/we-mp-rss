@@ -24,8 +24,6 @@ jobs:
           cd ./web_ui
           chmod +x build.sh
           ./build.sh
-      - name: Copy to Static
-        run: cp -r dist/* ../static
 
       - name: Log in to GHCR
         run: echo  ${{secrets.TOKEN}} | docker login ghcr.io -u  ${{github.actor}} --password-stdin
