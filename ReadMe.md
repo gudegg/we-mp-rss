@@ -181,7 +181,7 @@ npm run build
 [WeWe RSS](https://github.com/cooderl/wewe-rss)
 
 
-❤️ 赞助
+# ❤️ 赞助
 如果觉得 We-MP-RSS 对你有帮助，欢迎给我来一杯啤酒！<br/>
 <img src="docs/赞赏码.jpg" width=180/>
 
