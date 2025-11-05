@@ -5,7 +5,7 @@ import random
 import yaml
 import re
 from bs4 import BeautifulSoup
-from .base import WxGather
+from core.wx.base import WxGather
 from core.print import print_error
 from core.log import logger
 # 继承 BaseGather 类
@@ -44,7 +44,7 @@ class MpsAppMsg(WxGather):
         super().Start(mp_id=Mps_id)
         if self.Gather_Content:
             Gather_Content=True
-        print(f"Web浏览器模式,是否采集[{Mps_title}]内容：{Gather_Content}\n")
+        print(f"APP浏览器模式,是否采集[{Mps_title}]内容：{Gather_Content}\n")
         # 请求参数
         url = "https://mp.weixin.qq.com/cgi-bin/appmsgpublish"
         count=5

@@ -74,7 +74,6 @@ class FirefoxController:
             response.raise_for_status()
             versions = response.json()
             latest_version = versions["LATEST_FIREFOX_VERSION"]
-            
             # 构建下载链接（适用于 Windows 64 位中文版）
             return f"https://download.mozilla.org/?product=firefox-latest-ssl&os=win64&lang=zh-CN"
         except Exception as e:
@@ -188,6 +187,32 @@ class FirefoxController:
         else:
             driver_name = "geckodriver"
         return os.path.join(os.path.dirname(__file__), "driver", driver_name)
+    def randomize_browser_features(self):
+        """随机设置浏览器特征（User-Agent、屏幕分辨率等）并清除所有 cookie 等信息"""
+        import random
+        # 随机生成 User-Agent
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.71 Safari/537.36 Edg/94.0.992.38",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36 OPR/79.0.4143.72",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Safari/537.36 Vivaldi/4.3",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.164 Safari/537.36 Brave/1.27.111"
+        ]
+        self.options.set_preference("general.useragent.override", random.choice(user_agents))
+        
+        # 随机设置屏幕分辨率
+        resolutions = ["1920,1080", "1366,768", "1440,900", "1600,900"]
+        self.options.set_preference("browser.window_rect", random.choice(resolutions))
+        
+        # 随机设置语言
+        languages = ["zh-CN"]
+        self.options.set_preference("intl.accept_languages", random.choice(languages))
+        
+        print("随机浏览器特征设置完成")
+    
     def _setup_driver(self):
         """自动配置geckodriver"""
         # 优先检查本地驱动
@@ -202,50 +227,74 @@ class FirefoxController:
             # 使用阿里云镜像源配置
             os.environ['WDM_SSL_VERIFY'] = '0'
             os.environ['WDM_LOCAL'] = '1'
-            # 针对 Linux ARM64 架构的特殊处理
+            
+            # 针对 ARM 架构的特殊处理
             if self.system == "linux" and platform.machine() == "aarch64":
                 os.environ['WDM_PLATFORM'] = 'linux64'
                 os.environ['WDM_ARCH'] = 'arm64'
             
-            # 尝试从华为云镜像直接下载
+            # 尝试从官方GitHub Releases直接下载
             try:
                 import requests
                 import re
                 import tarfile
                 import zipfile
                 
-                # 获取最新版本
-                response = requests.get("https://repo.huaweicloud.com/geckodriver/")
+                # 获取最新版本信息
+                response = requests.get("https://api.github.com/repos/mozilla/geckodriver/releases/latest")
                 response.raise_for_status()
+                release_info = response.json()
+                latest_version = release_info['tag_name'].lstrip('v')
                 
-                # 解析最新版本号
-                versions = re.findall(r'href="v(\d+\.\d+\.\d+)/"', response.text)
-                if not versions:
-                    raise Exception("无法从华为云镜像获取geckodriver版本")
-                latest_version = sorted(versions, key=lambda v: [int(n) for n in v.split('.')])[-1]
-                # 最新版本
                 print(f"最新版本: {latest_version}")
-                # 确定平台和文件后缀
+                
+                # 确定平台和架构
                 if self.system == "windows":
                     platform_name = "win64"
                     ext = "zip"
+                    driver_name = "geckodriver.exe"
                 elif self.system == "linux":
-                    platform_name = "linux64"
+                    if platform.machine() == "aarch64":
+                        platform_name = "linux-aarch64"
+                    else:
+                        platform_name = "linux64"
                     ext = "tar.gz"
+                    driver_name = "geckodriver"
                 elif self.system == "darwin":
-                    platform_name = "macos-aarch64" if platform.machine() == "arm64" else "macos"
+                    if platform.machine() == "arm64":
+                        platform_name = "macos-aarch64"
+                    else:
+                        platform_name = "macos"
                     ext = "tar.gz"
+                    driver_name = "geckodriver"
                 else:
                     raise Exception(f"不支持的系统: {self.system}")
                 
-                # 构建下载URL
-                download_url = f"https://repo.huaweicloud.com/geckodriver/v{latest_version}/geckodriver-v{latest_version}-{platform_name}.{ext}"
+                # 在GitHub Release中查找对应的资产文件
+                asset_url = None
+                asset_name = f"geckodriver-v{latest_version}-{platform_name}.{ext}"
+                
+                for asset in release_info['assets']:
+                    if asset['name'] == asset_name:
+                        asset_url = asset['browser_download_url']
+                        break
+                
+                if not asset_url:
+                    # 如果找不到精确匹配，尝试模糊匹配
+                    for asset in release_info['assets']:
+                        if platform_name in asset['name'] and ext in asset['name']:
+                            asset_url = asset['browser_download_url']
+                            print(f"使用匹配的资产: {asset['name']}")
+                            break
+                
+                if not asset_url:
+                    raise Exception(f"未找到适用于 {platform_name} 的geckodriver版本")
                 
                 # 下载文件
                 driver_dir = os.path.join(os.path.dirname(__file__), "driver")
                 os.makedirs(driver_dir, exist_ok=True)
                 archive_path = os.path.join(driver_dir, f"geckodriver.{ext}")
-                self._download_file(download_url, archive_path)
+                self._download_file(asset_url, archive_path)
                 
                 # 解压文件
                 if self.system == "windows":
@@ -273,9 +322,10 @@ class FirefoxController:
                 # 清理临时文件
                 os.remove(archive_path)
                 self.driver_path = extract_path
+                print(f"成功下载并配置geckodriver: {extract_path}")
                 
-            except Exception as mirror_error:
-                print("华为云镜像直接下载失败，尝试webdriver_manager...", mirror_error)
+            except Exception as github_error:
+                print("GitHub Releases下载失败，尝试webdriver_manager...", github_error)
                 try:
                     self.driver_path = GeckoDriverManager().install()
                 except Exception as official_error:
@@ -342,7 +392,7 @@ class FirefoxController:
                 # 禁用图片资源加载
                 self.options.set_preference("permissions.default.image", 2) # 禁用图片加载
                 self.options.set_preference("dom.ipc.plugins.enabled.libflashplayer.so", "false") # 禁用FlashPlayer
-                
+            self.randomize_browser_features()
 
             service = Service(executable_path=self.driver_path)
             self.driver = webdriver.Firefox(service=service, options=self.options)

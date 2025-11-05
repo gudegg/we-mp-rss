@@ -5,7 +5,7 @@ import random
 import yaml
 import re
 from bs4 import BeautifulSoup
-from .base import WxGather
+from core.wx.base import WxGather
 from core.print import print_error
 from core.log import logger
 # 继承 BaseGather 类
@@ -18,6 +18,7 @@ class MpsWeb(WxGather):
             r = App.get_article_content(url)
             if r!=None:
                 text = r.get("content","")
+                text=self.remove_common_html_elements(text)
                 if text is None:
                     return
                 if "当前环境异常，完成验证后即可继续访问" in text:
