@@ -5,6 +5,7 @@ from fastapi.background import BackgroundTasks
 from core.auth import get_current_user
 from core.db import DB
 from core.wx import search_Biz
+from driver.wx import Wx
 from .base import success_response, error_response
 from datetime import datetime
 from core.config import cfg
@@ -168,13 +169,14 @@ async def get_mp(
             )
         )
 @router.post("/by_article", summary="通过文章链接获取公众号详情")
-def get_mp_by_article(
+async def get_mp_by_article(
     url: str=Query(..., min_length=1),
     current_user: dict = Depends(get_current_user)
 ):
     try:
-        from driver.wxarticle import Web
-        info =Web.get_article_content(url)
+        from driver.wxarticle import WXArticleFetcher
+        Web=WXArticleFetcher()
+        info =await Web.async_get_article_content(url)
         
         if not info:
             raise HTTPException(

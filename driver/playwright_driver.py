@@ -1,27 +1,32 @@
 import os
 import platform
-from socket import timeout
 import subprocess
 import sys
 import json
 import random
 import uuid
+import asyncio
+from socket import timeout
 
-from apis import user
-#指定浏览器类型
-browsers_name=os.getenv("BROWSER_TYPE","firefox")
-browsers_path = os.getenv("PLAYWRIGHT_BROWSERS_PATH","")
-os.environ['PLAYWRIGHT_BROWSERS_PATH']=browsers_path
+# 设置环境变量
+browsers_name = os.getenv("BROWSER_TYPE", "firefox")
+browsers_path = os.getenv("PLAYWRIGHT_BROWSERS_PATH", "")
+os.environ['PLAYWRIGHT_BROWSERS_PATH'] = browsers_path
+
+# 导入Playwright相关模块
 from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
+import threading
+
 class PlaywrightController:
     def __init__(self):
-        
         self.system = platform.system().lower()
         self.driver = None
         self.browser = None
         self.context = None
         self.page = None
         self.isClose = True
+        self._lock = threading.Lock()  # 添加线程锁
     def _is_browser_installed(self, browser_name):
         """检查指定浏览器是否已安装"""
         try:
@@ -33,65 +38,66 @@ class PlaywrightController:
                     return True
             
             return False
-        except Exception:
+        except (OSError, PermissionError):
             return False
-    
+    def is_async(self):
+        try:
+            # 尝试获取事件循环
+            loop = asyncio.get_running_loop()
+            return True
+        except RuntimeError:
+            # 如果没有正在运行的事件循环，则说明不是异步环境
+            return False
     def start_browser(self, headless=True, mobile_mode=False, dis_image=False, browser_name=browsers_name, language="zh-CN", anti_crawler=True):
         try:
-            if  bool(os.getenv("NOT_HEADLESS",False)):
-                headless = False
-            if self.driver is None:
-                # 修复所有操作系统下的异步子进程问题
-                import asyncio
-                # 设置合适的事件循环策略
-                if sys.platform == "win32":
-                    # Windows系统使用ProactorEventLoop
-                    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+            # 使用线程锁确保线程安全
+            with self._lock:
+                if  bool(os.getenv("NOT_HEADLESS",False)):
+                    headless = False
+                if self.driver is None:
+                    self.driver = sync_playwright().start()
+            
+            
+                # 根据浏览器名称选择浏览器类型
+                if browser_name.lower() == "firefox":
+                    browser_type = self.driver.firefox
+                elif browser_name.lower() == "webkit":
+                    browser_type = self.driver.webkit
                 else:
-                    # Linux/Mac系统使用默认策略
-                    asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
-                self.driver = sync_playwright().start()
-            
-            # 根据浏览器名称选择浏览器类型
-            if browser_name.lower() == "firefox":
-                browser_type = self.driver.firefox
-            elif browser_name.lower() == "webkit":
-                browser_type = self.driver.webkit
-            else:
-                browser_type = self.driver.chromium  # 默认使用chromium
-            self.browser = browser_type.launch(headless=headless)
-            
-            # 设置浏览器语言为中文
-            context_options = {
-                "locale": language
-            }
-            
-            # 反爬虫配置
-            if anti_crawler:
-                context_options.update(self._get_anti_crawler_config(mobile_mode))
-            
-            self.context = self.browser.new_context(**context_options)
-            self.page = self.context.new_page()
-            
+                    browser_type = self.driver.chromium  # 默认使用chromium
+                self.browser = browser_type.launch(headless=headless)
+                
+                # 设置浏览器语言为中文
+                context_options = {
+                    "locale": language
+                }
+                
+                # 反爬虫配置
+                if anti_crawler:
+                    context_options.update(self._get_anti_crawler_config(mobile_mode))
+                
+                self.context = self.browser.new_context(**context_options)
+                self.page = self.context.new_page()
+                
+                if mobile_mode:
+                    self.page.set_viewport_size({"width": 375, "height": 812})
+                # else:
+                #     self.page.set_viewport_size({"width": 1920, "height": 1080})
 
-            if mobile_mode:
-                self.page.set_viewport_size({"width": 375, "height": 812})
-            # else:
-            #     self.page.set_viewport_size({"width": 1920, "height": 1080})
+                if dis_image:
+                    self.context.route("**/*.{png,jpg,jpeg}", lambda route: route.abort())
 
-            if not dis_image:
-                self.context.route("**/*.{png,jpg,jpeg}", lambda route: route.abort())
+                # 应用反爬虫脚本
+                if anti_crawler:
+                    self._apply_anti_crawler_scripts()
 
-            # 应用反爬虫脚本
-            if anti_crawler:
-                self._apply_anti_crawler_scripts()
-
-            self.isClose = False
-            return self.page
+                self.isClose = False
+                return self.page
         except Exception as e:
-            print(f"浏览器启动失败: {str(e)}")
+            # print(f"浏览器启动失败: {str(e)}")
             self.cleanup()
-            raise
+            raise Exception(f"浏览器启动失败: {str(e)}")
+        
     def string_to_json(self, json_string):
         try:
             json_obj = json.loads(json_string)
@@ -114,13 +120,10 @@ class PlaywrightController:
     def add_cookies(self, cookies):
         if self.context is None:
             raise Exception("浏览器未启动，请先调用 start_browser()")
-        for cookie in cookies:
-            self.context.add_cookies([cookie])
+        self.context.add_cookies(cookies)
 
     def add_cookie(self, cookie):
-        if self.context is None:
-            raise Exception("浏览器未启动，请先调用 start_browser()")
-        self.context.add_cookies([cookie])
+        self.add_cookies([cookie])
 
 
     def _get_anti_crawler_config(self, mobile_mode=False):
@@ -192,12 +195,14 @@ class PlaywrightController:
 
         try:
             from playwright_stealth.stealth import Stealth
-        except:
+            stealth = Stealth()
+            stealth.apply_stealth_sync(self.page)
+        except ImportError:
             print("检测到playwright_stealth未安装，正在自动安装...")
             subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright_stealth"])
-        
-        stealth = Stealth()
-        stealth.apply_stealth_sync(self.page)
+            from playwright_stealth.stealth import Stealth
+            stealth = Stealth()
+            stealth.apply_stealth_sync(self.page)
         """应用反爬虫脚本"""
         # 隐藏自动化特征
         self.page.add_init_script("""
@@ -284,15 +289,17 @@ class PlaywrightController:
     def cleanup(self):
         """清理所有资源"""
         try:
-            if hasattr(self, 'page') and self.page:
-                self.page.close()
-            if hasattr(self, 'context') and self.context:
-                self.context.close()
-            if hasattr(self, 'browser') and self.browser:
-                self.browser.close()
-            if hasattr(self, 'playwright') and self.driver:
-                self.driver.stop()
-            self.isClose = True
+            # 使用线程锁确保线程安全
+            with self._lock:
+                if hasattr(self, 'page') and self.page:
+                    self.page.close()
+                if hasattr(self, 'context') and self.context:
+                    self.context.close()
+                if hasattr(self, 'browser') and self.browser:
+                    self.browser.close()
+                if hasattr(self, 'playwright') and self.driver:
+                    self.driver.stop()
+                self.isClose = True
         except Exception as e:
             print(f"资源清理失败: {str(e)}")
 
