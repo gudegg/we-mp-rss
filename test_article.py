@@ -65,11 +65,11 @@ def testToken():
 def testLogin():
     from driver.wx import WX_API
     from driver.success import Success
-    # de_url=WX_API.Token(Success)
+    de_url=WX_API.Token(Success)
     # de_url=WX_API.GetCode(Success)
     # de_url=WX_API.wxLogin()
-    # print(de_url)
-    input("按任意键退出")
+    print(de_url)
+    # input("按任意键退出")
 def testNotice():
     from jobs.notice import sys_notice
     text="""
@@ -139,15 +139,13 @@ def test_screenshot():
 
 async def test_Article():
     from driver.wxarticle import WXArticleFetcher
-    
     v=await WXArticleFetcher().async_get_article_content("https://mp.weixin.qq.com/s/puc5q9xFmfMSy3OyqeYxZA")
     print(v)
 
 if __name__=="__main__":
-    # testLogin()
-    import asyncio
+    # import asyncio
     # test_screenshot()
-    asyncio.run(test_Article())
+    # asyncio.run(test_Article())
     # asyncio.run(test_Article())
     # test_Gather_Article()
     # testWx_Api()
@@ -155,5 +153,7 @@ if __name__=="__main__":
     # testWeb()
     # testNotice()
     # testMd2Doc()
-    # testToken()
+    testToken()
+    # testLogin()
+    # testToken()  # 注释掉避免线程冲突
     # testMarkDown()

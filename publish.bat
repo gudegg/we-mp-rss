@@ -32,8 +32,8 @@ if %WEB_FLAG%==1 (
     exit /b 0
 )
 
-REM 读取Python配置文件中的版本号
-for /f "tokens=1 delims==" %%v in ('python -c "from core.ver import VERSION; print(VERSION)"') do set VERSION=%%v
+REM 读取版本文件中的版本号
+for /f "tokens=2 delims='" %%v in (core\ver.py) do set VERSION=%%v
 if "%VERSION%"=="" (
     echo 错误：无法从core.ver.py读取版本号
     exit /b 1

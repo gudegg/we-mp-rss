@@ -1,3 +1,5 @@
+from asyncio import wait_for
+from socket import timeout
 import sys
 
 from sqlalchemy import False_
@@ -26,6 +28,7 @@ class Wx:
     lock_file_path="data/.lock"
     CallBack=None
     Notice=None
+    ext_data = None
     # 添加线程锁保护共享变量
     _login_lock = Lock()
     def __init__(self):
@@ -45,7 +48,13 @@ class Wx:
     def extract_token_from_requests(self):
         """从页面中提取token"""
         try:
-            page = self.controller.page
+            # 优先使用临时控制器，其次使用默认控制器
+            controller = getattr(self, '_temp_controller', None) or self.controller
+            
+            if not controller or not controller.page:
+                return None
+                
+            page = controller.page
             # 尝试从当前URL获取token
             current_url = page.url
             token_match = re.search(r'token=([^&]+)', current_url)
@@ -136,9 +145,11 @@ class Wx:
             if not token:
                 print_warning("未找到有效的token")
                 return None
-            driver=self.controller
-            driver.start_browser()    
-            driver.open_url(f"{self.WX_HOME}?t=home/index&lang=zh_CN&token={token}")
+            
+            # 创建新的控制器实例避免线程冲突
+            controller=self.controller
+            controller.start_browser()    
+            controller.open_url(f"{self.WX_HOME}?t=home/index&lang=zh_CN&token={token}")
             
             cookie = Store.load()
             if cookie:
@@ -148,7 +159,7 @@ class Wx:
                         c['domain'] = '.weixin.qq.com'
                     if 'path' not in c:
                         c['path'] = '/'
-                driver.add_cookies(cookie)
+                controller.add_cookies(cookie)
             # 为单个token cookie添加必要的字段
             token_cookie = {
                 "name": "token", 
@@ -156,12 +167,13 @@ class Wx:
                 "domain": ".weixin.qq.com",
                 "path": "/"
             }
-            driver.add_cookie(token_cookie)
-            page=driver.page
+            controller.add_cookie(token_cookie)
+            page=controller.page
             qrcode = page.locator("#jumpUrl")
             qrcode.wait_for(state="visible", timeout=self.wait_time * 1000)
             qrcode.click()
             time.sleep(2)
+            
             return self.Call_Success()
         except ImportError as e:
             print_error(f"导入模块失败: {str(e)}")
@@ -170,7 +182,8 @@ class Wx:
             print_error(f"Token操作失败: {str(e)}")
             return None
         finally:
-            self.Close()
+            # 不在这里清理，让Call_Success处理清理
+            pass
     def isLock(self):             
         if self.isLock:
             if os.path.exists(self.wx_login_url):
@@ -205,11 +218,12 @@ class Wx:
             # 清理现有资源
             self.cleanup_resources()
             
+            self.controller=PlaywrightController()
             # 初始化浏览器控制器
             driver=self.controller
             # 启动浏览器并打开微信公众平台
             print_info("正在启动浏览器...")
-            driver.start_browser(anti_crawler=False,browser_name="")
+            driver.start_browser()
             driver.open_url(self.WX_LOGIN)
             page=driver.page
 
@@ -293,22 +307,21 @@ class Wx:
             
         # 获取token
         token = self.extract_token_from_requests()
-        
-        try:
-            # 使用更健壮的选择器定位元素
-            self.ext_data = self._extract_wechat_data()
-        except Exception as e:
-            print_error(f"获取公众号信息失败: {str(e)}")
-            self.ext_data = None
 
         # 获取当前所有cookie
         cookies = self.controller.get_cookies()
         # print("\n获取到的Cookie:")
-        self.SESSION=self.format_token(cookies,token)
+        self.SESSION=self.format_token(cookies,str(token))
         with self._login_lock:
             self.HasLogin=False if self.SESSION["expiry"] is None else True
         self.Clean()
         if  self.HasLogin:
+            try:
+            # 使用更健壮的选择器定位元素
+                self.ext_data = self._extract_wechat_data()
+            except Exception as e:
+                print_error(f"获取公众号信息失败: {str(e)}")
+                self.ext_data = None
             Store.save(cookies)
             print_success("登录成功！")
         else:
@@ -322,30 +335,64 @@ class Wx:
 
     def _extract_wechat_data(self):
         """提取微信公众号数据，使用更健壮的选择器"""
-        driver = self.controller.driver
+        # 优先使用临时控制器，其次使用默认控制器
+        controller = getattr(self, '_temp_controller', None) or self.controller
+        
+        if not controller or not controller.page:
+            return {}
+            
+        page = controller.page
         data = {}
         
-        # 使用更具体的选择器避免XPath过于脆弱
+        # 使用更健壮的选择器，增加备选方案
         selectors = {
-            "wx_app_name": ".account-name",
-            "wx_logo": ".account-avatar img",
-            "wx_read_yesterday": ".data-item:nth-child(1) .number",
-            "wx_share_yesterday": ".data-item:nth-child(2) .number", 
-            "wx_watch_yesterday": ".data-item:nth-child(3) .number",
-            "wx_yuan_count": ".original-count .number",
-            "wx_user_count": ".user-count .number"
+            "wx_app_name": [".account-name", ".nickname", ".account_nickname"],
+            "wx_logo": [".account-avatar img", ".avatar img"],
+            "wx_read_yesterday": [".data-item:nth-child(1) .number", ".data-item:first-child .number", "[data-label='阅读'] .number"],
+            "wx_share_yesterday": [".data-item:nth-child(2) .number", ".data-item:nth-child(1) + .data-item .number", "[data-label='分享'] .number"], 
+            "wx_watch_yesterday": [".data-item:nth-child(3) .number", ".data-item:last-child .number", "[data-label='在看'] .number", ".data-item .number"],
+            "wx_yuan_count": [".original-count .number", "[data-label='原创'] .number"],
+            "wx_user_count": [".user-count .number", "[data-label='关注'] .number"]
         }
         
-        for key, selector in selectors.items():
-            try:
-                element = driver.find_element(By.CSS_SELECTOR, selector)
-                if key == "wx_logo":
-                    data[key] = element.get_attribute("src")
-                else:
-                    data[key] = element.text
-            except Exception as e:
-                print_warning(f"获取{key}失败: {str(e)}")
-                data[key] = ""
+        for key, selector_list in selectors.items():
+            data[key] = ""
+            selector_found = False
+            
+            # 遍历备选选择器
+            for selector in selector_list:
+                try:
+                    element = page.locator(selector)
+                    # 先检查元素是否存在，再等待可见
+                    if element.count() > 0:
+                        element.wait_for(state="visible", timeout=2000)
+                        if key == "wx_logo":
+                            data[key] = element.get_attribute("src")
+                        else:
+                            data[key] = element.text_content()
+                        selector_found = True
+                        print_info(f"成功获取{key}，使用选择器: {selector}")
+                        break
+                except Exception as e:
+                    continue
+            
+            if not selector_found:
+                print_warning(f"获取{key}失败: 所有选择器都无法定位到元素")
+                # 对于特定字段，尝试更通用的方法
+                if key == "wx_watch_yesterday":
+                    try:
+                        # 尝试获取所有.data-item .number元素
+                        all_numbers = page.locator(".data-item .number")
+                        count = all_numbers.count()
+                        if count >= 3:
+                            data[key] = all_numbers.nth(2).text_content()
+                            print_info(f"使用通用方法获取{key}成功")
+                        elif count > 0:
+                            # 如果只有1-2个，取最后一个
+                            data[key] = all_numbers.nth(count-1).text_content()
+                            print_info(f"使用备用方法获取{key}成功")
+                    except Exception as fallback_e:
+                        print_error(f"备用方法也失败: {str(fallback_e)}")
                 
         return data
     

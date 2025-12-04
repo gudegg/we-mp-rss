@@ -83,4 +83,4 @@ if [ -f "requirements.txt" ]; then
         echo $CURRENT_MD5 > $OLD_MD5_FILE
     fi
 fi 
-playwright install $BROWSER_TYPE --with-deps
+# playwright install $BROWSER_TYPE --with-deps

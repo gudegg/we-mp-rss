@@ -71,7 +71,7 @@ class PlaywrightController:
                 browser_type = self.driver.webkit
             else:
                 browser_type = self.driver.chromium  # 默认使用chromium
-            
+            print(f"启动浏览器: {browser_name}, 无头模式: {headless}, 移动模式: {mobile_mode}, 反爬虫: {anti_crawler}")
             # 设置启动选项
             launch_options = {
                 "headless": headless
@@ -213,17 +213,17 @@ class PlaywrightController:
         return str(uuid.uuid4()).replace("-", "")
 
     def _apply_anti_crawler_scripts(self):
-
-        try:
-            from playwright_stealth.stealth import Stealth
-            stealth = Stealth()
-            stealth.apply_stealth_sync(self.page)
-        except ImportError:
-            print("检测到playwright_stealth未安装，正在自动安装...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright_stealth"])
-            from playwright_stealth.stealth import Stealth
-            stealth = Stealth()
-            stealth.apply_stealth_sync(self.page)
+        # try:
+        #     from playwright_stealth.stealth import Stealth
+        #     stealth = Stealth()
+        #     stealth.apply_stealth_sync(self.page)
+        # except ImportError:
+        #     print("检测到playwright_stealth未安装，正在自动安装...")
+        #     subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright_stealth"])
+        #     from playwright_stealth.stealth import Stealth
+        #     stealth = Stealth()
+        #     stealth.apply_stealth_sync(self.page)
+        
         """应用反爬虫脚本"""
         # 隐藏自动化特征
         self.page.add_init_script("""
@@ -260,7 +260,7 @@ class PlaywrightController:
                 originalQuery(parameters)
         );
         """)
-        
+      
         # 设置更真实的浏览器行为
         self.page.evaluate("""
         // 随机延迟点击事件

@@ -253,7 +253,7 @@ class WXArticleFetcher:
                 "biz": "",
                 }
             }
-        self.controller.start_browser(mobile_mode=False,dis_image=True)
+        self.controller.start_browser()
        
         self.page = self.controller.page
         print_warning(f"Get:{url} Wait:{self.wait_timeout}")
