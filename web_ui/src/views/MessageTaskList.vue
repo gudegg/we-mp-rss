@@ -6,14 +6,26 @@ import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
 import ResponsiveTable from '@/components/ResponsiveTable.vue'
 import TaskList from '@/components/TaskList.vue'
+import { 
+  getNotificationEnabled, 
+  enableBrowserNotification, 
+  disableBrowserNotification,
+  initBrowserNotification 
+} from '@/utils/browserNotification'
 
 const isMobile = ref(window.innerWidth < 768)
 const handleResize = () => {
   isMobile.value = window.innerWidth < 768
 }
 
+// 浏览器通知状态
+const browserNotificationEnabled = ref(false)
+
 onMounted(() => {
   window.addEventListener('resize', handleResize)
+  // 初始化浏览器通知状态
+  browserNotificationEnabled.value = getNotificationEnabled()
+  initBrowserNotification()
 })
 
 onBeforeUnmount(() => {
@@ -128,6 +140,23 @@ const FreshJob = () => {
   })
 }
 
+// 切换浏览器通知
+const toggleNotification = async () => {
+  if (browserNotificationEnabled.value) {
+    disableBrowserNotification()
+    browserNotificationEnabled.value = false
+    Message.success('浏览器通知已关闭')
+  } else {
+    const success = await enableBrowserNotification()
+    if (success) {
+      browserNotificationEnabled.value = true
+      Message.success('浏览器通知已开启，将每分钟检查新文章')
+    } else {
+      Message.error('开启浏览器通知失败')
+    }
+  }
+}
+
 const handleEdit = (id: number) => {
   router.push(`/message-tasks/edit/${id}`)
 }
@@ -183,6 +212,18 @@ onMounted(() => {
     <div class="message-task-list">
       <div class="header">
         <h2>消息任务列表</h2>
+        <a-tooltip :content="browserNotificationEnabled ? '点击关闭浏览器通知' : '开启后有新文章时浏览器标题会闪烁并播放提示音'">
+          <a-button 
+            :type="browserNotificationEnabled ? 'primary' : 'outline'" 
+            :status="browserNotificationEnabled ? 'success' : 'normal'"
+            @click="toggleNotification"
+          >
+            <template #icon>
+              <icon-notification />
+            </template>
+            {{ browserNotificationEnabled ? '通知已开启' : '开启浏览器通知' }}
+          </a-button>
+        </a-tooltip>
         <a-tooltip content="点击应用按钮后任务才会生效">
           <a-button type="primary" @click="FreshJob">应用</a-button>
         </a-tooltip>
