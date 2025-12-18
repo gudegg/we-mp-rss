@@ -202,8 +202,7 @@ class WXArticleFetcher:
                     article_data['content'] = content_backup
                     
                     # 避免请求过快，但只在非最后一个请求时等待
-                    if i < total_count:
-                        time.sleep(3)
+                    self.Wait(3,10,tips=f"处理第 {i}/{total_count} 篇文章")
                         
                 except Exception as e:
                     print_error(f"处理文章失败 {url}: {e}")
@@ -224,6 +223,10 @@ class WXArticleFetcher:
         with ThreadPoolExecutor() as pool:
             future = loop.run_in_executor(pool, self.get_article_content, url)
         return await future
+    def Wait(self,min=10,max=60,tips:str=""):
+        wait=random.randint(min,max)
+        print_warning(f"{tips}等待{wait}秒后重试...")
+        time.sleep(wait)
     def get_article_content(self, url: str) -> Dict:
         """获取单篇文章详细内容
         
@@ -274,7 +277,7 @@ class WXArticleFetcher:
                 #     page.locator("#js_verify").click()
                 # except:
                 self.controller.cleanup()
-                time.sleep(random.randint(10,60))
+                self.Wait(tips="当前环境异常，完成验证后即可继续访问")
                 raise Exception("当前环境异常，完成验证后即可继续访问")
             if "该内容已被发布者删除" in body or "The content has been deleted by the author." in body:
                 info["content"]="DELETED"

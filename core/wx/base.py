@@ -118,7 +118,7 @@ class WxGather:
         return text
     def Wait(self,min=10,max=60,tips:str=""):
         wait=random.randint(min,max)
-        print_warning("{tips}等待{random.randint(10,60)}秒后重试...")
+        print_warning(f"{tips}等待{wait}秒后重试...")
         time.sleep(wait)
 
     def FillBack(self,CallBack=None,data=None,Ext_Data=None):
@@ -207,7 +207,6 @@ class WxGather:
         _cookies.append({'name':'token','value':self.token})
         if CallBack is not None:
             CallBack(item)
-        time.sleep(random.randint(3,10))
         self.Wait(tips=f"{item['title']} 处理完成",min=3,max=10)
         pass
     def Error(self,error:str,code=None):
