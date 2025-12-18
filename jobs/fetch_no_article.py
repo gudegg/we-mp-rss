@@ -59,10 +59,30 @@ task_queue.run_task_background()
 from core.config import cfg
 from core.print import print_success,print_warning
 def start_sync_content():
+    """
+    根据配置自动启动文章内容同步任务
+    
+    功能：
+    - 检查是否启用了自动同步功能
+    - 根据配置的间隔时间设置定时任务
+    - 清除现有任务队列和调度器中的所有作业
+    - 添加新的定时同步任务并启动调度器
+    
+    Args:
+        无显式参数，从配置中读取以下设置：
+        - gather.content_auto_check: 是否启用自动同步功能
+        - gather.content_auto_interval: 同步间隔时间（分钟）
+    
+    Returns:
+        None
+    
+    Raises:
+        无显式异常抛出，但内部可能打印警告或成功信息
+    """
     if not cfg.get("gather.content_auto_check",False):
         print_warning("自动检查并同步文章内容功能未启用")
         return
-    interval=int(cfg.get("gather.content_auto_interval",1)) # 每隔多少分钟
+    interval=int(cfg.get("gather.content_auto_interval",10)) # 每隔多少分钟
     cron_exp=f"*/{interval} * * * *"
     task_queue.clear_queue()
     scheduler.clear_all_jobs()

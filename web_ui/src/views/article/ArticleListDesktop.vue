@@ -246,7 +246,7 @@ const statusColorMap = {
 
 const columns = [
   {
-    title: '阅读状态',
+    title: '已阅',
     dataIndex: 'is_read',
     width: '100',
     render: ({ record }) => {
@@ -272,7 +272,7 @@ const columns = [
   {
     title: '文章标题',
     dataIndex: 'title',
-    width: window.innerWidth - 1000,
+    width: window.innerWidth - 1100,
     ellipsis: true,
     render: ({ record }) => h('a', {
       href: record.url || '#',

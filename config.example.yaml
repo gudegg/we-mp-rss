@@ -93,7 +93,7 @@ gather:
   #内容修正模式，默认web 允许值 web、api
   content_mode: ${GATHER.CONTENT_MODE:-web}
   #是否清理html标签 默认True 
-  clean_html: ${GATHER.CLEAN_HTML:-True}
+  clean_html: ${GATHER.CLEAN_HTML:-False}
   #浏览器类型 默认firefox 允许值 firefox/edge/webkit
   browser_type: ${BROWSER_TYPE:-firefox}
 #安全配置

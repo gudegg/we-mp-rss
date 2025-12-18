@@ -274,7 +274,7 @@ class WXArticleFetcher:
                 #     page.locator("#js_verify").click()
                 # except:
                 self.controller.cleanup()
-                time.sleep(5)
+                time.sleep(random.randint(10,60))
                 raise Exception("当前环境异常，完成验证后即可继续访问")
             if "该内容已被发布者删除" in body or "The content has been deleted by the author." in body:
                 info["content"]="DELETED"
@@ -356,21 +356,22 @@ class WXArticleFetcher:
             # 记录详细错误信息但继续执行
 
         try:
-            # 等待关键元素加载
-            # 使用更精确的选择器避免匹配多个元素
-            ele_logo = page.locator('#js_like_profile_bar .wx_follow_avatar img')
-            # 获取<img>标签的src属性
-            logo_src = ele_logo.get_attribute('src')
+            if info["content"]!="DELETED":
+                # 等待关键元素加载
+                # 使用更精确的选择器避免匹配多个元素
+                ele_logo = page.locator('#js_like_profile_bar .wx_follow_avatar img')
+                # 获取<img>标签的src属性
+                logo_src = ele_logo.get_attribute('src')
 
-            # 获取公众号名称
-            title = page.evaluate('() => $("#js_wx_follow_nickname").text()')
-            biz = page.evaluate('() => window.biz')
-            info["mp_info"]={
-                "mp_name":title,
-                "logo":logo_src,
-                "biz": biz or self.extract_biz_from_source(url, page), 
-            }
-            info["mp_id"]= "MP_WXS_"+base64.b64decode(info["mp_info"]["biz"]).decode("utf-8")
+                # 获取公众号名称
+                title = page.evaluate('() => $("#js_wx_follow_nickname").text()')
+                biz = page.evaluate('() => window.biz')
+                info["mp_info"]={
+                    "mp_name":title,
+                    "logo":logo_src,
+                    "biz": biz or self.extract_biz_from_source(url, page), 
+                }
+                info["mp_id"]= "MP_WXS_"+base64.b64decode(info["mp_info"]["biz"]).decode("utf-8")
         except Exception as e:
             print_error(f"获取公众号信息失败: {str(e)}")   
             pass
