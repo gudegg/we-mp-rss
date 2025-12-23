@@ -11,6 +11,7 @@ from core.models.feed import Feed
 from core.models.article import Article
 from core.lax.template_parser import TemplateParser
 from views.config import base
+from driver.wxarticle import Web
 # 创建路由器
 router = APIRouter(tags=["首页"])
 
