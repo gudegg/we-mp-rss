@@ -98,6 +98,42 @@ class TemplateParser:
                         output.append(str(result))
                     except Exception as e:
                         output.append(f'[Error: {str(e)}]')
+                elif ' or ' in var_expr:
+                    # Handle 'or' operator for default values
+                    parts = var_expr.split(' or ')
+                    result = None
+                    for part_expr in parts:
+                        part_expr = part_expr.strip()
+                        # Remove quotes if it's a literal string
+                        if (part_expr.startswith('"') and part_expr.endswith('"')) or \
+                           (part_expr.startswith("'") and part_expr.endswith("'")):
+                            result = part_expr[1:-1]
+                            break
+                        else:
+                            # Evaluate the variable
+                            if '.' in part_expr:
+                                # Handle nested attribute access
+                                var_parts = part_expr.split('.')
+                                current = context.get(var_parts[0], {})
+                                for var_part in var_parts[1:]:
+                                    if isinstance(current, dict):
+                                        current = current.get(var_part, '')
+                                    else:
+                                        current = getattr(current, var_part, '')
+                                    if current is None:
+                                        current = ''
+                                        break
+                                value = current
+                            else:
+                                # Simple variable access
+                                value = context.get(part_expr, '')
+                            
+                            # If value is not empty or not zero, use it
+                            if value or value == 0:
+                                result = value
+                                break
+                    
+                    output.append(str(result if result is not None else ''))
                 elif '.' in var_expr:
                     # print(f"DEBUG - Processing nested variable: {var_expr}")  # Debug
                     # Handle nested attribute access
@@ -276,6 +312,42 @@ class TemplateParser:
                                         value = str(result)
                                     except Exception as e:
                                         value = f'[Error: {str(e)}]'
+                                elif ' or ' in var_expr:
+                                    # Handle 'or' operator for default values
+                                    parts = var_expr.split(' or ')
+                                    result = None
+                                    for part_expr in parts:
+                                        part_expr = part_expr.strip()
+                                        # Remove quotes if it's a literal string
+                                        if (part_expr.startswith('"') and part_expr.endswith('"')) or \
+                                           (part_expr.startswith("'") and part_expr.endswith("'")):
+                                            result = part_expr[1:-1]
+                                            break
+                                        else:
+                                            # Evaluate the variable
+                                            if '.' in part_expr:
+                                                # Handle nested attribute access
+                                                var_parts = part_expr.split('.')
+                                                current = loop_context.get(var_parts[0], {})
+                                                for var_part in var_parts[1:]:
+                                                    if isinstance(current, dict):
+                                                        current = current.get(var_part, '')
+                                                    else:
+                                                        current = getattr(current, var_part, '')
+                                                    if current is None:
+                                                        current = ''
+                                                        break
+                                                value = current
+                                            else:
+                                                # Simple variable access
+                                                value = loop_context.get(part_expr, '')
+                                            
+                                            # If value is not empty or not zero, use it
+                                            if value or value == 0:
+                                                result = value
+                                                break
+                                    
+                                    value = str(result if result is not None else '')
                                 elif '.' in var_expr:
                                     # Handle nested attributes
                                     parts = var_expr.split('.')
