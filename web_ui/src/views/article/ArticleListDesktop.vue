@@ -173,7 +173,7 @@
             <a-space/>
             <a-link @click="viewArticle(currentArticle,1)" target="_blank">下一篇 </a-link>
             </div>
-            <div v-html="currentArticle.content"></div>
+            <div ref="shadowContainer" style="width: 100%; height: auto;"></div>
 
             <div style="margin-top: 20px; color: var(--color-text-3); text-align: right">
               {{ currentArticle.time }}
@@ -188,7 +188,7 @@
 <script setup lang="ts">
 import { Avatar } from '@/utils/constants'
 import { translatePage, setCurrentLanguage } from '@/utils/translate';
-import { ref, onMounted, h } from 'vue'
+import { ref, onMounted, h, nextTick } from 'vue'
 import axios from 'axios'
 import { IconApps, IconAtt, IconDelete, IconEdit, IconEye, IconRefresh, IconScan, IconWeiboCircleFill, IconWifi, IconCode, IconCheck, IconClose } from '@arco-design/web-vue/es/icon'
 import { getArticles, deleteArticle as deleteArticleApi, ClearArticle, ClearDuplicateArticle, getArticleDetail, toggleArticleReadStatus } from '@/api/article'
@@ -567,6 +567,10 @@ const viewArticle = async (record: any,action_type: number) => {
     articleModalVisible.value = true
     window.location="#topreader"
     
+    // 创建或更新 Shadow DOM
+    await nextTick()
+    createShadowHost()
+    
     // 自动标记为已读（仅在查看当前文章时，不是上一篇/下一篇）
     if (action_type === 0 && record.is_read !== 1) {
       await toggleReadStatus(record)
@@ -585,6 +589,7 @@ const currentArticle = ref({
   url: ''
 })
 const articleModalVisible = ref(false)
+const shadowContainer = ref()
 
 const deleteArticle = (id: number) => {
   Modal.confirm({
@@ -762,6 +767,58 @@ const exportArticles = () => {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   Message.success('导出成功');
+};
+
+// 创建 Shadow DOM 隔离容器
+const createShadowHost = () => {
+  if (!shadowContainer.value) return;
+  
+  // 清空容器
+  shadowContainer.value.innerHTML = '';
+  
+  // 创建 Shadow Host
+  const shadowHost = document.createElement('div');
+  shadowHost.style.width = '100%';
+  shadowHost.style.height = 'auto';
+  
+  // 创建 Shadow Root
+  const shadowRoot = shadowHost.attachShadow({ mode: 'open' });
+  
+  // 添加基础样式到 Shadow DOM
+  const style = document.createElement('style');
+  style.textContent = `
+    :host {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    img {
+      max-width: 100% !important;
+      height: auto !important;
+      display: block;
+      margin: 0 auto;
+    }
+    iframe {
+      width: 100% !important;
+      border: none !important;
+    }
+    p {
+      margin: 1em 0;
+      line-height: 1.6;
+    }
+    * {
+      box-sizing: border-box;
+    }
+  `;
+  shadowRoot.appendChild(style);
+  
+  // 创建内容容器
+  const contentDiv = document.createElement('div');
+  contentDiv.innerHTML = currentArticle.value.content || '';
+  shadowRoot.appendChild(contentDiv);
+  
+  // 将 Shadow Host 添加到容器中
+  shadowContainer.value.appendChild(shadowHost);
 };
 
 // 切换文章阅读状态
