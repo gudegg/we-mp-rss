@@ -1,5 +1,4 @@
 from jobs import start_job
-from driver.auth import *
 if __name__ == '__main__':
     import init_sys as init
     init.init()

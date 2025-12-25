@@ -2,6 +2,7 @@ import uvicorn
 from core.config import cfg
 from core.print import print_warning
 import threading
+from driver.auth import *
 import os
 if __name__ == '__main__':
     print("环境变量:")
