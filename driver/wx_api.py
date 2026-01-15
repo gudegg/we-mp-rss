@@ -382,8 +382,16 @@ class WeChatAPI:
                 # 检查登录状态
                 status = self._check_login_status(uuid)
                 if status == 'success':
-                    self._islogin=True
-                    self._handle_login_success()
+                    # 先不设置 _islogin，等 _handle_login_success 完全成功后再设置
+                    if self._handle_login_success():
+                        self._islogin = True
+                        logger.info("登录流程完成，状态已更新")
+                    else:
+                        self._islogin = False
+                        logger.warning("登录流程未完成，等待重试")
+                        # 登录处理失败时继续检查
+                        Timer(3.0, check_login).start()
+                        return
                 elif status == 'waiting':
                     # 继续等待
                     Timer(2.0, check_login).start()
@@ -394,10 +402,17 @@ class WeChatAPI:
                     Timer(2.0, check_login).start()
                 elif status == 'expired':
                     # 二维码过期
+                    self._islogin = False
                     if self.notice_callback:
                         self.notice_callback('二维码已过期，请重新获取')
                     return
                 elif status == 'exists':
+                    return
+                elif status == 'invalid session':
+                    # 无效会话
+                    self._islogin = False
+                    if self.notice_callback:
+                        self.notice_callback('会话无效，请重新扫码')
                     return
                 else:
                     # 继续检查
@@ -405,6 +420,7 @@ class WeChatAPI:
                     
             except Exception as e:
                 logger.error(f"检查登录状态失败: {str(e)}")
+                self._islogin = False
                 if self.notice_callback:
                     self.notice_callback('检查登录状态失败,请重试')
                 # Timer(5.0, check_login).start()  # 出错后延长检查间隔
@@ -466,23 +482,39 @@ class WeChatAPI:
     def _handle_login_success(self):
         """
         处理登录成功
+        返回 True 表示登录完全成功，返回 False 表示登录失败需要重试
         """
         try:
-            self.is_logged_in = True
-            
             # 获取token和cookies
             self._extract_login_info()
             
-            # 清理二维码文件
-            self._clean_qr_code()
+            # 检查 token 是否成功获取
+            if not self.token:
+                logger.error("未能获取到有效的token，登录失败")
+                self._islogin = False
+                self.is_logged_in = False
+                return False
+            
             from driver.cookies import expire
-            # 调用成功回调
-            if self._get_account_info() is not  None:
-                logger.info("登录成功！")
-                return True
+            # 调用成功回调获取账号信息
+            account_info = self._get_account_info()
+            if account_info is None:
+                logger.error("获取账号信息失败，登录未完成")
+                self._islogin = False
+                self.is_logged_in = False
+                # 不清理二维码，让用户可以看到错误状态
+                return False
+            
+            # 只有在成功获取账号信息后才设置登录状态并清理二维码
+            self.is_logged_in = True
+            self._clean_qr_code()
+            logger.info("登录成功！")
+            return True
         except Exception as e:
             logger.error(f"处理登录失败: {str(e)}")
-        return False
+            self._islogin = False
+            self.is_logged_in = False
+            return False
     def _extract_login_info(self):
         """
         提取登录信息（token和cookies）
@@ -561,6 +593,8 @@ class WeChatAPI:
         Returns:
             cookies字符串
         """
+        if not self.cookies or not isinstance(self.cookies, dict):
+            return ""
         return '; '.join([f"{k}={v}" for k, v in self.cookies.items()])
 
     def _calculate_expiry(self) -> Optional[float]:
@@ -922,7 +956,17 @@ class WeChatAPI:
         except:
             return False
     def HasLogin(self):
-        return self._islogin and not self.GetHasCode()
+        """
+        检查是否已登录
+        需要同时满足：_islogin 为 True、没有二维码文件、token 非空
+        """
+        if not self._islogin:
+            return False
+        if self.GetHasCode():
+            return False
+        if not self.token:
+            return False
+        return True
     def Close(self):
         pass
 # 创建全局实例
