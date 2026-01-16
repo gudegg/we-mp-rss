@@ -134,6 +134,12 @@
         </a-page-header>
 
         <a-card style="border:0">
+          <a-alert v-if="wxTokenExpired" type="error" closable style="margin-bottom: 16px;">
+            <template #icon>
+              <icon-exclamation-circle-fill />
+            </template>
+            微信授权已过期！请点击右上角"刷新授权"按钮重新扫码登录，否则将无法获取公众号文章。
+          </a-alert>
           <a-alert type="success" closable>{{ activeFeed?.mp_intro || "请选择一个公众号码进行管理,搜索文章后再点击订阅会有惊喜哟！！！" }}</a-alert>
           <div class="search-bar">
             <a-input-search v-model="searchText" placeholder="搜索文章标题" @search="handleSearch" @keyup.enter="handleSearch"
@@ -206,7 +212,7 @@ import { Avatar } from '@/utils/constants'
 import { translatePage, setCurrentLanguage } from '@/utils/translate';
 import { ref, onMounted, h, nextTick, watch } from 'vue'
 import axios from 'axios'
-import { IconApps, IconAtt, IconDelete, IconEdit, IconEye, IconRefresh, IconScan, IconWeiboCircleFill, IconWifi, IconCode, IconCheck, IconClose } from '@arco-design/web-vue/es/icon'
+import { IconApps, IconAtt, IconDelete, IconEdit, IconEye, IconRefresh, IconScan, IconWeiboCircleFill, IconWifi, IconCode, IconCheck, IconClose, IconExclamationCircleFill } from '@arco-design/web-vue/es/icon'
 import { getArticles, deleteArticle as deleteArticleApi, ClearArticle, ClearDuplicateArticle, getArticleDetail, toggleArticleReadStatus } from '@/api/article'
 import { ExportOPML, ExportMPS, ImportMPS } from '@/api/export'
 import ExportModal from '@/components/ExportModal.vue'
@@ -218,6 +224,7 @@ import router from '@/router'
 import { deleteMpApi } from '@/api/subscription'
 import TextIcon from '@/components/TextIcon.vue'
 import { ProxyImage } from '@/utils/constants'
+import { getSysInfo } from '@/api/sysInfo'
 
 const articles = ref([])
 const loading = ref(false)
@@ -226,6 +233,11 @@ const mpLoading = ref(false)
 const activeMpId = ref('')
 const exportModal = ref()
 const selectedRowKeys = ref([])
+const wxTokenExpired = ref(false)
+const wxTokenInfo = ref({
+  login: false,
+  expiry_time: ''
+})
 const mpPagination = ref({
   current: 1,
   pageSize: 10,
@@ -667,10 +679,33 @@ const handleExportShow = async () => {
   exportModal.value.show(mp_id,ids,mp_name)
 }
 
+// 检查微信token是否过期
+const checkWxTokenExpired = async () => {
+  try {
+    const sysInfo = await getSysInfo()
+    wxTokenInfo.value = sysInfo.wx || { login: false, expiry_time: '' }
+    
+    // 判断是否过期
+    if (!sysInfo.wx?.login) {
+      wxTokenExpired.value = true
+    } else if (sysInfo.wx?.expiry_time) {
+      // 解析过期时间并检查是否已经过期
+      const expiryTime = new Date(sysInfo.wx.expiry_time).getTime()
+      const now = new Date().getTime()
+      wxTokenExpired.value = expiryTime < now
+    } else {
+      wxTokenExpired.value = false
+    }
+  } catch (error) {
+    console.error('检查微信token失败:', error)
+    wxTokenExpired.value = false
+  }
+}
 
 onMounted(() => {
   console.log('组件挂载，开始获取数据')
   initIssourceUrl() // 初始化 issourceUrl 值
+  checkWxTokenExpired() // 检查微信token是否过期
   fetchMpList().then(() => {
     console.log('公众号列表获取完成')
     fetchArticles()
