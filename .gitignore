@@ -21,3 +21,4 @@ doc2pdf/*.pdf
 demo.txt
 test.yaml
 .idea
+nas_update.sh

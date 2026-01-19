@@ -2,6 +2,7 @@ import requests
 import json
 import re
 import time
+import logging
 from core.models import Feed
 from core.db import DB
 from core.models.feed import Feed
@@ -12,6 +13,9 @@ from driver.success import setStatus
 from driver.wxarticle import Web
 from core.wait import Wait
 import random
+
+# 配置日志
+logger = logging.getLogger(__name__)
 # 定义一些常见的 User-Agent
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
@@ -75,19 +79,39 @@ class WxGather:
         self.session=session
         self.get_token()
     def get_token(self):
+        """获取Token和Cookie信息，并记录详细日志"""
+        logger.info("========== 获取Token配置 ==========")
         cfg.reload()
         wx_cfg.reload()
-        self.Gather_Content=cfg.get('gather.content',False)
+        
+        self.Gather_Content = cfg.get('gather.content', False)
         self.cookies = wx_cfg.get('cookie', '')
-        self.token=wx_cfg.get('token','')
+        self.token = wx_cfg.get('token', '')
+        
+        # 记录Token状态（脱敏处理）
+        if self.token:
+            token_display = f"{self.token[:10]}...{self.token[-5:]}" if len(self.token) > 15 else self.token
+            logger.info(f"Token已加载: {token_display}")
+        else:
+            logger.warning("Token为空！请先扫码登录公众号平台")
+        
+        # 记录Cookie状态（脱敏处理）
+        if self.cookies:
+            cookie_len = len(self.cookies)
+            logger.info(f"Cookie已加载，长度: {cookie_len} 字符")
+        else:
+            logger.warning("Cookie为空！请先扫码登录公众号平台")
+        
         # 随机选择一个 User-Agent
         self.user_agent = cfg.get('user_agent', '')
         user_agent = random.choice(USER_AGENTS)
-        self.user_agent=user_agent
+        self.user_agent = user_agent
         self.headers = {
-            "Cookie":self.cookies,
+            "Cookie": self.cookies,
             "User-Agent": user_agent
         }
+        
+        logger.info(f"采集内容模式: {self.Gather_Content}")
     def fix_header(self,url):
          user_agent = random.choice(USER_AGENTS)
           # 更新请求头

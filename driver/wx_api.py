@@ -81,8 +81,17 @@ class WeChatAPI:
         Returns:
             包含二维码信息的字典
         """
+        logger.info("========== 开始获取登录二维码 ==========")
+        
+        # 清理旧的二维码文件和锁文件，确保可以重新登录
+        self._clean_qr_code()
+        self.release_lock()
+        
+        # 重新初始化会话
         self.__init__()
+        
         if self.check_lock():
+            logger.warning("微信公众平台登录脚本正在运行，请勿重复运行")
             print_warning("微信公众平台登录脚本正在运行，请勿重复运行")
             return {
                 'code': None,
@@ -94,17 +103,21 @@ class WeChatAPI:
             self.notice_callback = notice
             
             try:
+                logger.info(f"正在访问登录页面: {self.login_url}")
                 # 获取登录页面
                 response = self.session.get(self.login_url)
                 response.raise_for_status()
+                logger.info(f"登录页面访问成功，状态码: {response.status_code}")
                 
                 # 解析页面获取二维码相关信息
                 qr_info = self._extract_qr_info(response.text)
+                logger.info(f"解析二维码信息结果: {qr_info}")
                 
                 if qr_info:
                     # 生成二维码图片
                     self._generate_qr_image(qr_info['qr_url'])
                     self.set_lock()
+                    logger.info(f"二维码已生成，UUID: {qr_info['uuid']}")
                     # 启动登录状态检查
                     self._start_login_check(qr_info['uuid'])
                     if  self.notice_callback is not None:
@@ -116,6 +129,7 @@ class WeChatAPI:
                         'msg': '请使用微信扫描二维码登录'
                     }
                 else:
+                    logger.error("获取二维码失败：无法解析二维码信息")
                     return {
                         'code': None,
                         'is_exists': False,
@@ -124,6 +138,8 @@ class WeChatAPI:
                     
             except Exception as e:
                 logger.error(f"获取二维码失败: {str(e)}")
+                import traceback
+                logger.error(f"详细错误信息: {traceback.format_exc()}")
                 return {
                     'code': None,
                     'is_exists': False,
@@ -174,9 +190,13 @@ class WeChatAPI:
         """
         try:
             # 首先访问登录页面，模拟浏览器打开行为
-            logger.info("模拟浏览器访问登录页面...")
+            logger.info("========== 通过API获取二维码 ==========")
+            logger.info(f"正在访问登录页面: {self.login_url}")
             login_response = self.session.get(self.login_url)
             login_response.raise_for_status()
+            logger.info(f"登录页面响应状态码: {login_response.status_code}")
+            logger.info(f"登录页面Cookies: {dict(login_response.cookies)}")
+            
             session = self.session
             # 设置更完整的浏览器请求头
             browser_headers = {
@@ -198,21 +218,25 @@ class WeChatAPI:
             session.headers.update(browser_headers)
             
             # 启动登录流程获取UUID
+            logger.info("正在调用 start_login() 获取UUID...")
             uuid = self.start_login()
+            logger.info(f"start_login() 返回的UUID: {uuid}")
+            
             if not uuid:
                 uuid = self._generate_uuid()
+                logger.warning(f"start_login() 未返回有效UUID，使用随机生成的UUID: {uuid}")
             
             # 构建二维码请求URL，模拟浏览器请求
             timestamp = int(time.time() * 1000)  # 使用毫秒时间戳
             qr_api_url = f"{self.base_url}/cgi-bin/scanloginqrcode?action=getqrcode&uuid={uuid}&random={timestamp}"
             
-
-          
+            logger.info(f"请求二维码URL: {qr_api_url}")
+            logger.info(f"当前Session Cookies: {dict(session.cookies)}")
             
-            logger.info(f"请求二维码: {qr_api_url}")
-            logger.info(f"使用UUID: {uuid}")
             # 发送请求获取二维码
             response = session.get(qr_api_url,  allow_redirects=False)
+            logger.info(f"二维码请求响应状态码: {response.status_code}")
+            logger.info(f"二维码请求响应Content-Type: {response.headers.get('Content-Type', 'N/A')}")
             
             # 检查响应状态
             if response.status_code == 200:
@@ -241,7 +265,16 @@ class WeChatAPI:
                         
                 else:
                     logger.warning(f"响应不是图片格式: {content_type}")
-                    logger.debug(f"响应内容: {response.text[:200]}...")
+                    # 尝试解析JSON响应以获取更多信息
+                    try:
+                        json_resp = response.json()
+                        logger.error(f"二维码获取失败，响应JSON: {json_resp}")
+                        if 'base_resp' in json_resp:
+                            ret = json_resp['base_resp'].get('ret', 'N/A')
+                            err_msg = json_resp['base_resp'].get('err_msg', 'N/A')
+                            logger.error(f"错误码: {ret}, 错误信息: {err_msg}")
+                    except:
+                        logger.warning(f"响应内容(前500字符): {response.text[:500]}")
             
             elif response.status_code == 302:
                 # 处理重定向
@@ -261,24 +294,39 @@ class WeChatAPI:
             
             else:
                 logger.error(f"请求失败: 状态码={response.status_code}")
-                logger.debug(f"响应头: {dict(response.headers)}")
-                logger.debug(f"响应内容: {response.text[:500]}...")
+                logger.error(f"响应头: {dict(response.headers)}")
+                # 尝试解析错误响应
+                try:
+                    json_resp = response.json()
+                    logger.error(f"错误响应JSON: {json_resp}")
+                except:
+                    logger.error(f"响应内容(前500字符): {response.text[:500]}")
             
+            logger.error("所有二维码获取方法都失败了")
+            return None
             
         except Exception as e:
             logger.error(f"API获取二维码失败: {str(e)}")
-    #开始登录 
+            import traceback
+            logger.error(f"详细错误信息: {traceback.format_exc()}")
+            return None
+    #开始登录
     def start_login(self):
         """
-        启动登录流程
+        启动登录流程，获取用于二维码的UUID
         """
-        uuid=self._generate_uuid()
-        self.session.cookies.set("uuid",uuid)
-        token=self.session.cookies.get("token","")
-        url=f"{self.base_url}/cgi-bin/bizlogin?action=startlogin"
-        fingerprint=self._generate_uuid()
-        data={
-            "fingerprint": fingerprint,
+        logger.info("========== 启动登录流程 ==========")
+        
+        # 生成初始UUID和fingerprint
+        initial_uuid = self._generate_uuid()
+        self.fingerprint = self._generate_uuid()
+        self.session.cookies.set("uuid", initial_uuid)
+        
+        token = self.session.cookies.get("token", "")
+        url = f"{self.base_url}/cgi-bin/bizlogin?action=startlogin"
+        
+        data = {
+            "fingerprint": self.fingerprint,
             "token": token,
             "lang": "zh_CN",
             "f": "json",
@@ -286,10 +334,45 @@ class WeChatAPI:
             "redirect_url": f"/cgi-bin/settingpage?t=setting/index&amp;action=index&amp;token={token}&amp;lang=zh_CN",
             "login_type": "3",
         }
-        response=self.session.post(url,data=data)
-          # 从响应头或Cookie中获取UUID
-        uuid = response.cookies.get('uuid') or response.headers.get('X-UUID') 
-        return uuid
+        
+        logger.info(f"发送登录请求到: {url}")
+        logger.info(f"请求参数: fingerprint={self.fingerprint}, token={token[:20] if token else 'None'}...")
+        
+        try:
+            response = self.session.post(url, data=data)
+            logger.info(f"登录请求响应状态码: {response.status_code}")
+            logger.info(f"登录请求响应Cookies: {dict(response.cookies)}")
+            
+            # 尝试解析JSON响应
+            try:
+                json_resp = response.json()
+                logger.info(f"登录请求响应JSON: {json_resp}")
+                
+                # 检查是否有错误
+                if 'base_resp' in json_resp:
+                    ret = json_resp['base_resp'].get('ret', 0)
+                    err_msg = json_resp['base_resp'].get('err_msg', '')
+                    if ret != 0:
+                        logger.error(f"登录请求失败: ret={ret}, err_msg={err_msg}")
+            except:
+                logger.warning(f"响应不是JSON格式: {response.text[:200]}")
+            
+            # 从响应头或Cookie中获取UUID
+            uuid = response.cookies.get('uuid') or response.headers.get('X-UUID')
+            logger.info(f"从响应中获取的UUID: {uuid}")
+            
+            # 如果没有获取到UUID，使用初始生成的
+            if not uuid:
+                logger.warning(f"未从响应中获取到UUID，使用初始生成的UUID: {initial_uuid}")
+                uuid = initial_uuid
+            
+            return uuid
+            
+        except Exception as e:
+            logger.error(f"启动登录流程失败: {str(e)}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
+            return initial_uuid
     
     def pre_login(self):
         """
@@ -441,9 +524,17 @@ class WeChatAPI:
         """
         try:
             if not os.path.exists(self.qr_code_path):
+                logger.warning("二维码文件不存在，可能已被清理")
                 return "not_exists"
-            check_url=f"{self.base_url}/cgi-bin/scanloginqrcode"
-            self.fingerprint=self.cookies.get("fingerprint") or self._generate_uuid()
+            
+            check_url = f"{self.base_url}/cgi-bin/scanloginqrcode"
+            
+            # 确保 fingerprint 有效
+            if self.cookies and isinstance(self.cookies, dict):
+                self.fingerprint = self.cookies.get("fingerprint") or self.fingerprint or self._generate_uuid()
+            else:
+                self.fingerprint = self.fingerprint or self._generate_uuid()
+            
             params = {
                 "action": "ask",
                 "fingerprint": self.fingerprint,
@@ -452,6 +543,8 @@ class WeChatAPI:
                 "ajax": 1
             }
             
+            logger.debug(f"检查登录状态: URL={check_url}, fingerprint={self.fingerprint}")
+            
             response = self.session.get(check_url, params=params)
             response.raise_for_status()
             
@@ -459,24 +552,59 @@ class WeChatAPI:
             if response.headers.get('content-type', '').startswith('application/json'):
                 data = response.json()
                 status = data.get('status', 0)
-                print(data)
-                if "invalid session" in str(data):
+                
+                # 详细记录响应
+                logger.info(f"登录状态检查响应: status={status}, data={data}")
+                
+                # 检查是否有错误信息
+                if 'base_resp' in data:
+                    ret = data['base_resp'].get('ret', 0)
+                    err_msg = data['base_resp'].get('err_msg', '')
+                    if ret != 0:
+                        logger.error(f"登录状态检查返回错误: ret={ret}, err_msg={err_msg}")
+                        if "invalid session" in err_msg.lower() or ret == 200003:
+                            logger.error("会话无效！可能是因为二维码UUID与服务器不匹配。请重新获取二维码。")
+                            return 'invalid session'
+                
+                # 检查响应中是否包含 invalid session
+                if "invalid session" in str(data).lower():
+                    logger.error("检测到 'invalid session' 错误！")
+                    logger.error("这通常表示二维码的UUID未正确注册到微信服务器。")
+                    logger.error("可能的原因：")
+                    logger.error("  1. start_login() 没有正确初始化会话")
+                    logger.error("  2. 二维码生成时使用的UUID与检查时不一致")
+                    logger.error("  3. 会话已过期")
                     return 'invalid session'
+                
                 if status == 1:
+                    logger.info("用户已扫码并确认，登录成功！")
                     with self._lock:
                         self.cookies = requests.utils.dict_from_cookiejar(self.session.cookies) if self.session.cookies else {}
                     return 'success'  # 登录成功
                 elif status == 2:
+                    logger.info("用户已扫描二维码，等待确认...")
                     return 'scanned'  # 已扫描
                 elif status == 3:
+                    logger.info("登录成功（状态3）")
                     return 'success'  # 登录成功
                 elif status == 4:
+                    logger.info("用户已扫描，等待手机确认...")
                     return 'scanned'  # 已扫描，等待确认
-                else:
+                elif status == 0:
+                    logger.debug("等待用户扫码...")
                     return 'wait'  # 继续等待
+                else:
+                    logger.warning(f"未知的登录状态: {status}")
+                    return 'wait'  # 继续等待
+            else:
+                logger.warning(f"响应不是JSON格式: Content-Type={response.headers.get('content-type')}")
+                logger.warning(f"响应内容: {response.text[:500]}")
+                return 'error'
                     
         except Exception as e:
             logger.error(f"检查登录状态失败: {str(e)}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
             return 'error'
 
     def _handle_login_success(self):
