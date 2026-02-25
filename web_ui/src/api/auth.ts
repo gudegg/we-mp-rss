@@ -69,28 +69,49 @@ export const QRCode = () => {
   })
 }
 let interval_status_Id:number=0
+let statusCheckCounter = 0
 export const checkQRCodeStatus = () => {
   return new Promise((resolve, reject) => {
      if (interval_status_Id) {
       clearInterval(interval_status_Id);
-      qrCodeIntervalId = 0;
+      interval_status_Id = 0;
     }
+      statusCheckCounter = 0
+      const maxStatusAttempts = 200  // 最大轮询次数（约10分钟）
       interval_status_Id = setInterval(() => {
+        statusCheckCounter++
+        if(statusCheckCounter > maxStatusAttempts) {
+          clearInterval(interval_status_Id)
+          interval_status_Id = 0
+          reject(new Error('授权状态检查超时'))
+          return
+        }
         http.get("wx/auth/qr/status").then(response => {
           if(response?.login_status){
             Message.success("授权成功")
             clearInterval(interval_status_Id)
+            interval_status_Id = 0
             resolve(response)
           }
         }).catch(err => {
-          // clearInterval(intervalId)
-          // reject(err)
+          console.error('检查授权状态失败:', err)
         })
       }, 3000)
   })
 }
 export const refreshToken = () => {
   return http.post<LoginResult>('/wx/auth/refresh')
+}
+
+export const clearAllAuthTimers = () => {
+  if (qrCodeIntervalId) {
+    clearInterval(qrCodeIntervalId)
+    qrCodeIntervalId = 0
+  }
+  if (interval_status_Id) {
+    clearInterval(interval_status_Id)
+    interval_status_Id = 0
+  }
 }
 
 export const logout = () => {

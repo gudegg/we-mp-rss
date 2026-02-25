@@ -59,6 +59,11 @@ async def add_custom_header(request: Request, call_next):
     response.headers["X-Powered-By"] = "Rachel"
     response.headers["GITHUB"] = "https://github.com/rachelos/we-mp-rss"
     response.headers["Server"] = cfg.get("app_name", "WeRSS")
+    # 二维码文件禁止缓存，确保每次获取最新二维码
+    if "wx_qrcode" in str(request.url.path):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
     return response
 # 创建API路由分组
 api_router = APIRouter(prefix=f"{API_BASE}")

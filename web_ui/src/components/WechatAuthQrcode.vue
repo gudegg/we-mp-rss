@@ -33,7 +33,7 @@
 
 <script lang="ts" setup>
 import { ref } from 'vue'
-import { QRCode, checkQRCodeStatus } from '@/api/auth'
+import { QRCode, checkQRCodeStatus, clearAllAuthTimers } from '@/api/auth'
 import { Message } from '@arco-design/web-vue'
 
 const emit = defineEmits(['success', 'error'])
@@ -43,14 +43,15 @@ const loading = ref(false)
 const qrcodeUrl = ref('')
 const errorMessage = ref('')
 
-let checkStatusTimer: number | null = null
-
 const startAuth = async () => {
   try {
     visible.value = true
     loading.value = true
     errorMessage.value = ''
-    
+
+    // 清理之前的所有定时器
+    clearAllAuthTimers()
+
     // 获取二维码
     const res = await QRCode()
     qrcodeUrl.value = res?.code
@@ -59,8 +60,7 @@ const startAuth = async () => {
     // 开始检查授权状态
         checkQRCodeStatus().then((statusRes) => {
           if (statusRes?.login_status) {
-            clearTimer()
-            // Message.success('授权成功')
+            clearAllAuthTimers()
             emit('success', statusRes)
             visible.value = false
           }
@@ -77,10 +77,7 @@ const startAuth = async () => {
 }
 
 const clearTimer = () => {
-  if (checkStatusTimer) {
-    clearInterval(checkStatusTimer)
-    checkStatusTimer = null
-  }
+  clearAllAuthTimers()
 }
 
 defineExpose({

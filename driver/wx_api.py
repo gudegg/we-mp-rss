@@ -82,13 +82,28 @@ class WeChatAPI:
             包含二维码信息的字典
         """
         logger.info("========== 开始获取登录二维码 ==========")
-        
+
         # 清理旧的二维码文件和锁文件，确保可以重新登录
         self._clean_qr_code()
         self.release_lock()
-        
-        # 重新初始化会话
-        self.__init__()
+
+        # 重置运行时状态（不重建并发原语）
+        self._islogin = False
+        self.is_logged_in = False
+        self.token = None
+        self.cookies_dict = []
+        self.cookies = {}
+        self.fingerprint = self._generate_uuid()
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Referer': 'https://mp.weixin.qq.com/'
+        })
         
         if self.check_lock():
             logger.warning("微信公众平台登录脚本正在运行，请勿重复运行")
@@ -456,7 +471,7 @@ class WeChatAPI:
     def _start_login_check(self, uuid: str):
         """
         启动登录状态检查
-        
+
         Args:
             uuid: 二维码UUID
         """
@@ -469,6 +484,7 @@ class WeChatAPI:
                     if self._handle_login_success():
                         self._islogin = True
                         logger.info("登录流程完成，状态已更新")
+                        self.release_lock()
                     else:
                         self._islogin = False
                         logger.warning("登录流程未完成，等待重试")
@@ -476,39 +492,43 @@ class WeChatAPI:
                         Timer(3.0, check_login).start()
                         return
                 elif status == 'waiting':
-                    # 继续等待
+                    # 继续等待，不释放锁
                     Timer(2.0, check_login).start()
                 elif status == 'scanned':
-                    # 已扫描，等待确认
+                    # 已扫描，等待确认，不释放锁
                     if self.notice_callback:
                         self.notice_callback('已扫描，请在手机上确认登录')
                     Timer(2.0, check_login).start()
                 elif status == 'expired':
-                    # 二维码过期
+                    # 二维码过期，清理资源
                     self._islogin = False
+                    self._clean_qr_code()
+                    self.release_lock()
                     if self.notice_callback:
                         self.notice_callback('二维码已过期，请重新获取')
                     return
                 elif status == 'exists':
+                    self.release_lock()
                     return
                 elif status == 'invalid session':
-                    # 无效会话
+                    # 无效会话，清理资源
                     self._islogin = False
+                    self._clean_qr_code()
+                    self.release_lock()
                     if self.notice_callback:
                         self.notice_callback('会话无效，请重新扫码')
                     return
                 else:
                     # 继续检查
                     Timer(2.0, check_login).start()
-                    
+
             except Exception as e:
                 logger.error(f"检查登录状态失败: {str(e)}")
                 self._islogin = False
+                self._clean_qr_code()
+                self.release_lock()
                 if self.notice_callback:
                     self.notice_callback('检查登录状态失败,请重试')
-                # Timer(5.0, check_login).start()  # 出错后延长检查间隔
-            finally:
-                self.release_lock()
         # 启动检查
         Timer(2.0, check_login).start()
 
@@ -1045,6 +1065,8 @@ class WeChatAPI:
         }      
     def GetCode(self,CallBack=None,Notice=None):
         from core.print import print_warning
+        # 先清理旧的二维码文件，避免残留文件阻止新流程
+        self._clean_qr_code()
         if self.check_lock():
             print_warning("微信公众平台登录脚本正在运行，请勿重复运行")
             return {
@@ -1066,9 +1088,9 @@ class WeChatAPI:
             return True
         return False
     def check_lock(self):
-        """检查锁定状态"""
+        """检查锁定状态（仅检查锁文件，不检查二维码文件）"""
         time.sleep(1)
-        return os.path.exists(self.lock_file_path) or self.GetHasCode()
+        return os.path.exists(self.lock_file_path)
     def set_lock(self):
         """创建锁定文件"""
         with open(self.lock_file_path, 'w') as f:

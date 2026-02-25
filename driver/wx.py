@@ -178,13 +178,14 @@ class Wx:
             return False 
     def GetCode(self,CallBack=None,Notice=None):
         self.Notice=Notice
+        # 先清理旧的二维码文件，避免残留文件阻止新流程
+        self.Clean()
         if  self.check_lock():
             print_warning("微信公众平台登录脚本正在运行，请勿重复运行")
             return {
                 "code":f"{self.wx_login_url}?t={(time.time())}",
                 "msg":"微信公众平台登录脚本正在运行，请勿重复运行！"}
-       
-        self.Clean()
+
         print("子线程执行中")
         from core.thread import ThreadManager
         self.thread = ThreadManager(target=self.wxLogin,args=(CallBack,True))  # 传入函数名
@@ -381,9 +382,11 @@ class Wx:
             else:
                 print_error(f"\n错误发生: {str(e)}")
             self.SESSION=None
+            self.Clean()  # 清理过期/无效的二维码文件
             return self.SESSION
         finally:
             self.release_lock()
+            self.Clean()  # 确保二维码文件被清理，避免残留阻止下次登录
             if NeedExit :
                 self.Close()
         return self.SESSION
@@ -418,8 +421,9 @@ class Wx:
         self.SESSION=self.format_token(cookies,str(token))
         with self._login_lock:
             self._haslogin=False if self.SESSION["expiry"] is None else True
-        # 登录成功后不立即清理二维码，保持浏览器运行
+        # 登录成功后清理二维码文件
         if  self._haslogin:
+            self.Clean()  # 登录成功，清理二维码文件
             try:
             # 使用更健壮的选择器定位元素
                 if has_extdata:
@@ -549,9 +553,9 @@ class Wx:
             return False
             
     def check_lock(self):
-        """检查锁定状态"""
+        """检查锁定状态（仅检查锁文件，不检查二维码文件）"""
         time.sleep(1)
-        return os.path.exists(self.lock_file_path) or self.GetHasCode()
+        return os.path.exists(self.lock_file_path)
         
     def set_lock(self):
         """创建锁定文件"""
