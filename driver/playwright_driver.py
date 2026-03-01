@@ -237,42 +237,83 @@ class PlaywrightController:
         #     stealth.apply_stealth_sync(self.page)
         
         """应用反爬虫脚本"""
-        # 隐藏自动化特征
+        # 隐藏自动化特征，使用更真实的浏览器指纹
         self.page.add_init_script("""
         // 隐藏webdriver属性
         Object.defineProperty(navigator, 'webdriver', {
-            get: () => false,
+            get: () => undefined,
         });
-        
-        // 隐藏chrome属性
-        Object.defineProperty(window, 'chrome', {
-            get: () => false,
-        });
-        
-        // 修改plugins长度
+
+        // 模拟真实 chrome 对象（Chrome 浏览器必须有此属性）
+        if (!window.chrome) {
+            window.chrome = {
+                runtime: {
+                    onConnect: { addListener: function() {} },
+                    onMessage: { addListener: function() {} },
+                    sendMessage: function() {},
+                    connect: function() { return { onMessage: { addListener: function() {} } }; }
+                },
+                loadTimes: function() { return {}; },
+                csi: function() { return {}; }
+            };
+        }
+
+        // 模拟真实的 plugins（真实浏览器至少有这些插件）
         Object.defineProperty(navigator, 'plugins', {
-            get: () => [1, 2, 3, 4, 5],
+            get: () => {
+                const plugins = [
+                    { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+                    { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+                    { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }
+                ];
+                plugins.length = 3;
+                return plugins;
+            },
         });
-        
+
+        // 模拟真实的 mimeTypes
+        Object.defineProperty(navigator, 'mimeTypes', {
+            get: () => {
+                const mimeTypes = [
+                    { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
+                    { type: 'application/x-nacl', suffixes: '', description: 'Native Client Executable' }
+                ];
+                mimeTypes.length = 2;
+                return mimeTypes;
+            },
+        });
+
         // 修改languages
         Object.defineProperty(navigator, 'languages', {
-            get: () => ['zh-CN', 'zh', 'en'],
+            get: () => ['zh-CN', 'zh', 'en-US', 'en'],
         });
-        
-        // 隐藏自动化痕迹
-        Object.defineProperty(navigator, 'webdriver', {
-            get: () => false,
+
+        // 修改 hardwareConcurrency 为合理值
+        Object.defineProperty(navigator, 'hardwareConcurrency', {
+            get: () => 8,
         });
-        
-        // 修改permissions
+
+        // 修改permissions，避免暴露自动化标志
         const originalQuery = window.navigator.permissions.query;
         window.navigator.permissions.query = (parameters) => (
             parameters.name === 'notifications' ?
                 Promise.resolve({ state: Notification.permission }) :
                 originalQuery(parameters)
         );
+
+        // 模拟真实的 WebGL 渲染器信息
+        const getParameter = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function(parameter) {
+            if (parameter === 37445) {
+                return 'Intel Inc.';
+            }
+            if (parameter === 37446) {
+                return 'Intel Iris OpenGL Engine';
+            }
+            return getParameter.call(this, parameter);
+        };
         """)
-      
+
         # 设置更真实的浏览器行为
         self.page.evaluate("""
         // 随机延迟点击事件
@@ -286,13 +327,6 @@ class PlaywrightController:
             }
             return originalAddEventListener.call(this, type, listener, options);
         };
-        
-        // 随机化鼠标移动
-        document.addEventListener('mousemove', (e) => {
-            if (Math.random() > 0.7) {
-                e.stopImmediatePropagation();
-            }
-        }, true);
         """)
 
        

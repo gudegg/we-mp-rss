@@ -1,6 +1,7 @@
 from asyncio import wait_for
 from socket import timeout
 import sys
+import logging
 
 from sqlalchemy import False_
 
@@ -17,6 +18,9 @@ from threading import Timer, Lock
 from .cookies import expire
 import json
 from core.print import print_error,print_warning,print_info,print_success
+
+# 模块级日志
+logger = logging.getLogger(__name__)
 class Wx:
     _haslogin=False
     SESSION=None
@@ -180,12 +184,15 @@ class Wx:
         self.Notice=Notice
         # 先清理旧的二维码文件，避免残留文件阻止新流程
         self.Clean()
+        logger.info("========== GetCode: 开始授权流程 ==========")
         if  self.check_lock():
+            logger.warning("GetCode: 被 lock 文件阻塞，跳过本次授权")
             print_warning("微信公众平台登录脚本正在运行，请勿重复运行")
             return {
                 "code":f"{self.wx_login_url}?t={(time.time())}",
                 "msg":"微信公众平台登录脚本正在运行，请勿重复运行！"}
 
+        logger.info("GetCode: lock 检查通过，启动登录线程")
         print("子线程执行中")
         from core.thread import ThreadManager
         self.thread = ThreadManager(target=self.wxLogin,args=(CallBack,True))  # 传入函数名
@@ -307,21 +314,21 @@ class Wx:
         5. 获取登录后的cookie和token
         6. 启动定时刷新线程(默认30分钟刷新一次)
         """
-            
+
         # 使用上下文管理器确保资源清理
         try:
             if self.check_lock():
                 print_warning("微信公众平台登录脚本正在运行，请勿重复运行")
                 return None
-                
+
             self.set_lock()
-            
+
             with self._login_lock:
                 self._haslogin = False
-                
+
             # 清理现有资源
             self.cleanup_resources()
-            
+
             self.controller=PlaywrightController()
             # 初始化浏览器控制器
             driver=self.controller
@@ -331,25 +338,41 @@ class Wx:
             driver.open_url(self.WX_LOGIN)
             page=driver.page
 
-            # from playwright.sync_api import sync_playwright
-            # playwright=sync_playwright().start()
-            # browser = playwright.chromium.launch()
-            # context = browser.new_context()
-            # page = context.new_page()
-            # page.goto(self.WX_LOGIN)
             # 等待页面完全加载
             print_info("正在加载登录页面...")
             page.wait_for_load_state("networkidle")
-            
+
+            # 检查是否已经跳转到首页（旧 cookies 自动登录的情况）
+            current_url = page.url
+            if self.WX_HOME in current_url or "home" in current_url:
+                print_info("检测到已有有效登录会话，验证 Session 有效性...")
+                # 验证 Session 是否真正有效 —— 发一个轻量 API 请求
+                token = self.extract_token_from_requests()
+                if token:
+                    from .success import setStatus
+                    with self._login_lock:
+                        self._haslogin = True
+                    setStatus(True)
+                    self.CallBack = CallBack
+                    self.Call_Success()
+                    return self.SESSION
+                else:
+                    print_warning("旧 Session 无效，清除 cookies 后重新加载登录页...")
+                    # 清除浏览器 cookies 避免自动跳转
+                    page.context.clear_cookies()
+                    driver.open_url(self.WX_LOGIN)
+                    page.wait_for_load_state("networkidle")
+
             # 定位二维码区域
             qr_tag=".login__type__container__scan__qrcode"
+            # 等待二维码元素真正渲染完成
+            page.wait_for_selector(qr_tag, state="visible", timeout=15000)
             # 获取二维码图片URL
             qrcode = page.query_selector(qr_tag)
             code_src=qrcode.get_attribute("src")
             print("正在生成二维码图片...")
             print(f"code_src:{code_src}")
-            # qrcode = page.query_selector(qr_tag)
-           
+
             # 使用Playwright截图功能（添加异常处理）
             qrcode.screenshot(path=self.wx_login_url)
 
@@ -361,15 +384,23 @@ class Wx:
             print("等待扫码登录...")
             if self.Notice is not None:
                 self.Notice()
-           
-            # # 监听页面导航事件
+
+            # 监听页面导航事件，只认跳转到首页为成功
+            login_confirmed = False
             def handle_frame_navigated(frame):
+                nonlocal login_confirmed
                 current_url = frame.url
                 if self.WX_HOME in current_url:
+                    login_confirmed = True
                     print(f"登录成功，正在获取cookie和token...")
             page.on('framenavigated', handle_frame_navigated)
-            page.wait_for_event("framenavigated", timeout=60 * 1000)
-           
+            page.wait_for_event("framenavigated", timeout=120 * 1000)
+
+            if not login_confirmed:
+                # 导航事件触发但不是首页，不算成功
+                print_warning("页面跳转但未到达首页，登录可能未成功")
+                raise Exception("登录未完成，页面未跳转到公众号首页")
+
             from .success import setStatus
             with self._login_lock:
                 self._haslogin=True
@@ -408,19 +439,28 @@ class Wx:
             }
     def Call_Success(self,has_extdata=True):
         """处理登录成功后的回调逻辑"""
+        logger.info("========== Call_Success: 开始处理登录结果 ==========")
         if not hasattr(self, 'controller') or self.controller is None:
+            logger.error("Call_Success: 浏览器控制器未初始化")
             print_error("浏览器控制器未初始化")
             return None
-            
+
         # 获取token
         token = self.extract_token_from_requests()
+        logger.info(f"Call_Success: 提取到 token={'有效' if token else '空'}")
 
         # 获取当前所有cookie
         cookies = self.controller.get_cookies()
-        # print("\n获取到的Cookie:")
         self.SESSION=self.format_token(cookies,str(token))
+
+        expiry = self.SESSION.get("expiry")
+        logger.info(f"Call_Success: Cookie 过期信息: {expiry}")
+
         with self._login_lock:
-            self._haslogin=False if self.SESSION["expiry"] is None else True
+            self._haslogin=False if expiry is None else True
+
+        logger.info(f"Call_Success: 登录状态判定: _haslogin={self._haslogin}")
+
         # 登录成功后清理二维码文件
         if  self._haslogin:
             self.Clean()  # 登录成功，清理二维码文件
@@ -433,10 +473,11 @@ class Wx:
                 self.ext_data = None
             Store.save(cookies)
             print_success("登录成功！")
+            logger.info("Call_Success: 登录成功，cookies 已保存")
         else:
             print_warning("未登录！")
-        
-        # print(cookie_expiry)
+            logger.warning("Call_Success: 登录失败，cookie expiry 为 None")
+
         if self.CallBack is not None:
             self.CallBack(self.SESSION,self.ext_data)
 
@@ -552,17 +593,47 @@ class Wx:
             print(f"设置cookie过期时出错: {str(e)}")
             return False
             
+    # Lock 文件最大存活时间（秒），超过此时间视为残留锁
+    LOCK_TTL = 120
+
     def check_lock(self):
-        """检查锁定状态（仅检查锁文件，不检查二维码文件）"""
-        time.sleep(1)
-        return os.path.exists(self.lock_file_path)
-        
+        """检查锁定状态，增加 TTL 超时和进程存活校验"""
+        if not os.path.exists(self.lock_file_path):
+            return False
+        try:
+            with open(self.lock_file_path, 'r') as f:
+                content = f.read().strip()
+            parts = content.split('|')
+            lock_time = float(parts[0])
+            lock_pid = int(parts[1]) if len(parts) > 1 else -1
+
+            elapsed = time.time() - lock_time
+            if elapsed > self.LOCK_TTL:
+                print_warning(f"Lock 文件已超时({elapsed:.0f}s > {self.LOCK_TTL}s)，自动清理残留锁")
+                self.release_lock()
+                return False
+
+            # 检查持有锁的进程是否仍然存活
+            if lock_pid > 0:
+                try:
+                    os.kill(lock_pid, 0)  # 不发送信号，仅检查进程是否存在
+                except OSError:
+                    print_warning(f"Lock 持有进程(PID={lock_pid})已不存在，清理残留锁")
+                    self.release_lock()
+                    return False
+
+            return True
+        except (ValueError, IOError) as e:
+            print_warning(f"Lock 文件格式异常({e})，清理并重置")
+            self.release_lock()
+            return False
+
     def set_lock(self):
-        """创建锁定文件"""
+        """创建锁定文件，记录时间戳和 PID"""
         with open(self.lock_file_path, 'w') as f:
-            f.write(str(time.time()))
+            f.write(f"{time.time()}|{os.getpid()}")
         self.isLOCK = True
-        
+
     def release_lock(self):
         """删除锁定文件"""
         try:

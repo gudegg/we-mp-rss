@@ -5,9 +5,22 @@ from jobs.notice import sys_notice
 from driver.success import Success
 from tools.base64_tools import image_to_base64
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 def send_wx_code(title:str="",url:str=""):
+    logger.info(f"触发重新授权流程: {title}")
     if cfg.get("server.send_code",False):
+        # 确保旧的二维码文件被清理
+        import os
+        qr_path = "static/wx_qrcode.png"
+        try:
+            if os.path.exists(qr_path):
+                os.remove(qr_path)
+                logger.info("已清理旧的二维码文件")
+        except Exception as e:
+            logger.warning(f"清理旧二维码文件失败: {e}")
         WX_API.GetCode(Notice=CallBackNotice,CallBack=Success)
     pass
 def CallBackNotice(data=None,ext_data=None):

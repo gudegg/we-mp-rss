@@ -238,10 +238,17 @@ class WxGather:
             setStatus(False)
             from core.queue import TaskQueue
             TaskQueue.clear_queue()
+            # 先强制清理可能残留的 lock 文件，确保重授权流程不被阻塞
+            lock_path = "./data/lock.lock"
+            try:
+                import os
+                if os.path.exists(lock_path):
+                    logger.warning(f"Invalid Session 触发重授权前清理残留 lock 文件")
+                    os.remove(lock_path)
+            except Exception as e:
+                logger.warning(f"清理 lock 文件失败: {e}")
             threading.Thread(target=send_wx_code,args=(f"公众号平台登录失效,请重新登录",)).start()
-            # send_wx_code(f"公众号平台登录失效,请重新登录")
             raise Exception(error)
-        # raise Exception(error)
         print_error(error)
 
     def Over(self,CallBack=None):
